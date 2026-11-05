@@ -1,0 +1,119 @@
+[
+  {
+    "name": "IndexTTS 官方 WebUI",
+    "type": "官方基线",
+    "platform": "CUDA / PyTorch；本机用 MLX 适配",
+    "url": "https://github.com/index-tts/index-tts",
+    "status": "已接入社区 MLX 路线",
+    "note": "2 与 2.5 的官方代码、模型和演示来源。保留版本，便于以后与官方 GPU 输出做同条件复核。",
+    "reviewed_on": "2026-11-05"
+  },
+  {
+    "name": "MLX IndexTTS 2/2.5",
+    "type": "Mac 整合环境",
+    "platform": "Apple Silicon",
+    "url": "https://github.com/groxaxo/mlx-indextts2-inference",
+    "status": "本次安装",
+    "note": "CLI、Gradio、批处理、音色缓存、情绪控制、分段输出。社区移植，质量以本机实测为准。",
+    "reviewed_on": "2026-11-05"
+  },
+  {
+    "name": "Breeze TTS 2 MLX",
+    "type": "Mac 整合环境",
+    "platform": "Apple Silicon",
+    "url": "https://github.com/rishikksh20/breeze-tts-mlx",
+    "status": "本次安装",
+    "note": "INT8 推理，声音设计、克隆和导演；本项目补上中文网页入口。",
+    "reviewed_on": "2026-11-05"
+  },
+  {
+    "name": "BreezeTTS2 官方",
+    "type": "官方基线",
+    "platform": "Linux + NVIDIA CUDA",
+    "url": "https://github.com/breezeblue-ai/breeze-tts",
+    "status": "研究目录",
+    "note": "参考实现与公开评测入口。官方 H100 延迟不能当作 Mac 速度。模型及自托管输出限研究、非商业。",
+    "reviewed_on": "2026-11-05"
+  },
+  {
+    "name": "TTS-WebUI",
+    "type": "多模型整合包",
+    "platform": "Windows / Linux / macOS，逐扩展核实",
+    "url": "https://github.com/rsxdalv/TTS-WebUI",
+    "status": "研究目录，未安装",
+    "note": "Gradio + React 插件式界面，覆盖多种 TTS、RVC、音频生成和分离工具。模型兼容性取决于扩展。",
+    "reviewed_on": "2026-11-05"
+  },
+  {
+    "name": "TTS Audio Suite",
+    "type": "ComfyUI 整合包",
+    "platform": "ComfyUI，逐引擎核实",
+    "url": "https://github.com/diodiogod/TTS-Audio-Suite",
+    "status": "研究目录，未安装",
+    "note": "多引擎、角色、SRT 时间轴、RVC、长文与音频工具。适合后续把配音接进视频工作流。",
+    "reviewed_on": "2026-11-05"
+  },
+  {
+    "name": "Breeze TTS 2 · T8",
+    "type": "中文整合包与节点",
+    "platform": "ComfyUI / 桌面包以发布说明为准",
+    "url": "https://github.com/T8mars/Comfyui-breeze-tts",
+    "status": "研究目录，未安装",
+    "note": "中文工作流、音色包、逐句情绪、多角色编排；不能把 Windows 桌面包直接视为 Mac 应用。",
+    "reviewed_on": "2026-11-05"
+  },
+  {
+    "name": "ComfyUI Breeze TTS 2",
+    "type": "ComfyUI 节点",
+    "platform": "PyTorch / ComfyUI",
+    "url": "https://github.com/Saganaki22/ComfyUI-Breeze-TTS-2",
+    "status": "研究目录，未安装",
+    "note": "Clone / Design / Direction，INT8 与 bf16；已有 ComfyUI 工作区保持独立。",
+    "reviewed_on": "2026-11-05"
+  },
+  {
+    "name": "MLX Audio",
+    "type": "Mac 多模型工具箱",
+    "platform": "Apple Silicon",
+    "url": "https://github.com/Neywa-Labs/mlx-audio",
+    "status": "研究目录，未安装",
+    "note": "TTS、ASR、语音到语音的扩展候选，可后续增加 Qwen、Kokoro 等对照模型。",
+    "reviewed_on": "2026-11-05"
+  },
+  {
+    "name": "AllTalk TTS",
+    "type": "配音整合包",
+    "platform": "优先 Windows / Linux NVIDIA",
+    "url": "https://github.com/erew123/alltalk_tts",
+    "status": "研究目录，未安装",
+    "note": "面向旁白、第三方 API 与训练工作流；与这次 Mac MLX 环境分离。",
+    "reviewed_on": "2026-11-05"
+  },
+  {
+    "name": "Pinokio IndexTTS2",
+    "type": "一键安装入口",
+    "platform": "安装脚本的平台限制需单独检查",
+    "url": "https://beta.pinokio.co/apps/github-com-6morpheus6-indextts2",
+    "status": "研究目录，未安装",
+    "note": "已找到公开一键安装入口；页面公开实测记录为 Windows x64 / NVIDIA，本次没有验证 Mac 安装。",
+    "reviewed_on": "2026-11-05"
+  },
+  {
+    "name": "BreezeTTS2 Mac Streaming",
+    "type": "Mac 流式优化",
+    "platform": "Apple Silicon · mlx-audio 0.5.1",
+    "url": "https://github.com/xzf-thu/BreezeTTS2_Mac_Streaming",
+    "status": "研究目录，未安装",
+    "note": "针对 depth decoder 的帧内 KV 复用与流式性能诊断；需要独立对照音质，项目 RTF 不能代替本机实测。",
+    "reviewed_on": "2026-11-05"
+  },
+  {
+    "name": "Breeze Fast Streaming API",
+    "type": "HTTP / WebSocket 服务",
+    "platform": "Apple Silicon MLX / 另有 CUDA 路线",
+    "url": "https://github.com/Shoofio/breeze-tts2-fast-streaming-api",
+    "status": "研究目录，未安装",
+    "note": "常驻服务、流式接口与网页调试候选；采用专用 MLX 产物，另做隔离环境与同条件验证。",
+    "reviewed_on": "2026-11-05"
+  }
+]

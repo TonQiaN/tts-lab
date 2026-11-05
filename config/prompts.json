@@ -1,0 +1,11 @@
+[
+ {"id":"neutral","name":"自然旁白","language":"zh","emotion":"neutral","text":"欢迎来到声音实验室。我们用同一段文字、同一个参考音色，比较不同语音模型的表现。请留意发音、停顿，以及声音里的细节。"},
+ {"id":"happy","name":"喜悦与惊喜","language":"zh","emotion":"happy","text":"你听到了吗？我们真的成功了！这一刻，我等了好久。快来，让我们一起庆祝吧！"},
+ {"id":"sad","name":"克制的难过","language":"zh","emotion":"sad","text":"我以为，还有很多时间可以慢慢说。可是走到门口才发现，有些话，已经没有机会再讲了。"},
+ {"id":"angry","name":"坚定而生气","language":"zh","emotion":"angry","text":"这件事我们已经说清楚了。请你认真听我把话说完，也请你尊重我们共同作出的决定。"},
+ {"id":"numbers","name":"数字与多音字","language":"zh","emotion":"neutral","text":"今天是二零二六年十一月五日。三点半开会，预算为一千二百三十四元五角。银行的工作人员，正在核对重庆项目的进展。"},
+ {"id":"mixed","name":"中英混读","language":"zh","emotion":"neutral","text":"这次测试使用 Python 和 GitHub。请打开 API 页面，选择 Index TTS，然后点击开始生成。"},
+ {"id":"english","name":"英文叙述","language":"en","emotion":"calm","text":"Some stories begin with a whisper. Take a breath, listen closely, and let the next sentence find its own rhythm."},
+ {"id":"vocal","name":"Breeze 声音事件","language":"zh","emotion":"happy","text":"[笑] 你终于来了！[叹气] 我还以为今天又要一个人等到天黑呢。"},
+ {"id":"japanese","name":"Index 2.5 日语","language":"ja","emotion":"calm","text":"こんにちは。今日は音声合成の実験をします。自然な話し方と、声の表情に注目してください。"}
+]
