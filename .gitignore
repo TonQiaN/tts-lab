@@ -1,24 +1,41 @@
-.DS_Store
-.venv/
-**/.venv/
-__pycache__/
-.pytest_cache/
-*.pyc
+# Rust
+/target
+**/*.rs.bk
+
+# 密钥和本机配置
 .env
 .env.*
 !.env.example
-vendor/
-models/
-data/
-logs/
+
+# 系统和编辑器
+.DS_Store
+.idea/
+.vscode/
+
+# Mac 上的 TTS 运行环境（见 tts/README.md）：上游代码、权重、音色、生成结果都只留在本机
+/vendor/
+/models/
+/data/
+/logs/
+/voices/
+.venv/
+**/.venv/
+__pycache__/
+*.pyc
+.runtime/
+
+# 音频和模型权重一律不进 Git（仓库是公开的，真人音色属于个人信息）
 *.wav
 *.mp3
 *.m4a
 *.flac
 *.aiff
+*.ogg
+*.opus
 *.safetensors
 *.pth
 *.pt
 *.npz
+*.onnx
+*.gguf
 *.zip
-.runtime/
