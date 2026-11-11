@@ -224,6 +224,9 @@ def execute_job(job_id: str):
     folder = item_path("runs", job_id)
     job = read_json(folder / "job.json")
     if job["status"] == "cancelled": return
+    if job["kind"] == "study":
+        execute_study(job_id)
+        return
     update_job(job_id, status="running", started_at=now())
     outputs = []
     try:
@@ -292,7 +295,7 @@ def execute_job(job_id: str):
             update_job(job_id, status="failed", error=str(exc), completed_at=now(), results=outputs)
 
 
-def enqueue(requests: list[GenerateRequest], title: str, kind="compare", gap_ms=200) -> dict:
+def enqueue(requests: list[GenerateRequest], title: str, kind="compare", gap_ms=200, metadata=None) -> dict:
     with LOCK:
         if sum(j["status"] in ["queued", "running"] for j in records("runs", "job.json")) >= 20:
             raise HTTPException(429, "队列已满，请等待现有任务完成")
@@ -311,9 +314,104 @@ def enqueue(requests: list[GenerateRequest], title: str, kind="compare", gap_ms=
         folder.mkdir()
         job = {"id":job_id, "title":title, "kind":kind, "status":"queued", "created_at":now(),
                "segments":rows, "gap_ms":gap_ms, "results":[], "progress":"等待运行"}
+        if metadata: job['metadata'] = metadata
         write_json(folder / "job.json", job)
         POOL.submit(execute_job, job_id)
         return job
+
+
+def execute_study(job_id: str):
+    folder = item_path('runs', job_id)
+    job = read_json(folder / 'job.json')
+    outputs, failures = [], []
+    total = len(job['segments'])
+    update_job(job_id, status='running', started_at=now(), progress=f'0 / {total} · 准备批处理')
+    try:
+        for engine_id in dict.fromkeys(row['engine'] for row in job['segments']):
+            if read_json(folder / 'job.json')['status']=='cancelled': return
+            engine = ENGINES[engine_id]
+            if engine_id=='breeze2' and job.get('metadata',{}).get('wait_for_reference_review'):
+                reference_ids={row['request']['reference_id'] for row in job['segments'] if row['engine']=='breeze2'}
+                deadline=time.monotonic()+2400
+                while any(get_ref(ref)[1].get('transcript_review',{}).get('status')!='ready' for ref in reference_ids):
+                    if read_json(folder/'job.json')['status']=='cancelled': return
+                    if time.monotonic()>deadline: raise RuntimeError('参考文字核对尚未完成，已保留已生成音频')
+                    update_job(job_id,progress=f'{len(outputs)} / {total} · 等待参考录音文字核对')
+                    time.sleep(2)
+            tasks = []
+            for row in job['segments']:
+                if row['engine'] != engine_id: continue
+                request = GenerateRequest(**row['request'])
+                run_id = uid()
+                output_dir = folder / run_id
+                output_dir.mkdir()
+                _, cwd, params = build_command(engine_id, request, output_dir / 'original.wav')
+                reference_path, reference = get_ref(request.reference_id)
+                tasks.append({'id':run_id, 'job_id':job_id, 'request':request.model_dump(),
+                              'output_dir':str(output_dir), 'reference_path':str(reference_path),
+                              'reference_transcript':reference['transcript'], 'reference_name':reference['name'],
+                              'engine_name':engine['name'], 'license':engine['license'], 'parameters':params})
+            task_file = folder / f'tasks-{engine_id}.json'
+            write_json(task_file, tasks)
+            environment = dict(os.environ, PYTHONUNBUFFERED='1', PYTHONFAULTHANDLER='1',
+                               HF_HOME=str(ROOT/'models/hf'), HF_HUB_OFFLINE='1', TRANSFORMERS_OFFLINE='1',
+                               INDEXTTS_W2V_BERT_DIR=str(ROOT/'models/facebook-w2v-bert-2.0'), TOKENIZERS_PARALLELISM='false')
+            command = [str(cwd/'.venv/bin/python'), str(ROOT/'scripts/batch_worker.py'),
+                       '--engine',engine_id, '--tasks',str(task_file), '--model',str(ROOT/engine['model_dir']),
+                       '--vendor',str(cwd)]
+            consumed = 0
+            started = time.monotonic()
+            with (folder/f'worker-{engine_id}.log').open('w') as log:
+                with LOCK:
+                    if read_json(folder/'job.json')['status']=='cancelled': return
+                    process = subprocess.Popen(command, cwd=cwd, env=environment, stdout=log,
+                                               stderr=subprocess.STDOUT, start_new_session=True)
+                    ACTIVE[job_id] = process
+                try:
+                    while True:
+                        if read_json(folder/'job.json')['status']=='cancelled': return
+                        changed = False
+                        while consumed < len(tasks):
+                            task = tasks[consumed]
+                            output_dir = Path(task['output_dir'])
+                            success, failure = output_dir/'result.json', output_dir/'failure.json'
+                            if success.exists(): outputs.append(read_json(success))
+                            elif failure.exists(): failures.append(read_json(failure))
+                            else: break
+                            consumed += 1
+                            changed = True
+                        if changed:
+                            update_job(job_id, results=outputs, failures=failures,
+                                       progress=f'{len(outputs)} / {total} · {engine["name"]} · 失败 {len(failures)}')
+                        if process.poll() is not None: break
+                        if time.monotonic()-started > 3600:
+                            os.killpg(process.pid, signal.SIGTERM)
+                            process.wait(timeout=15)
+                            raise RuntimeError(f'{engine["name"]} 批处理超时')
+                        time.sleep(.4)
+                finally:
+                    ACTIVE.pop(job_id, None)
+                for task in tasks[consumed:]:
+                    output_dir = Path(task['output_dir'])
+                    if (output_dir/'result.json').exists(): outputs.append(read_json(output_dir/'result.json'))
+                    elif (output_dir/'failure.json').exists(): failures.append(read_json(output_dir/'failure.json'))
+                    else: failures.append({'id':task['id'], 'engine':engine_id, 'reference_id':task['request']['reference_id'],
+                                           'emotion':task['request']['emotion'], 'error':f'批处理退出码 {process.returncode}；输出未完成'})
+            if outputs:
+                result = outputs[-1]
+                if result['engine']==engine_id:
+                    evidence_path=DATA/'verification.json'
+                    with LOCK:
+                        evidence=read_json(evidence_path) if evidence_path.exists() else {}
+                        evidence[engine_id]={'job_id':job_id,'run_id':result['id'],'created_at':now(),
+                                             'artifact_revision':engine['artifact_revision'],'audio_sha256':result['metrics']['sha256'],
+                                             'duration':result['metrics']['duration']}
+                        write_json(evidence_path,evidence)
+        update_job(job_id, status='partial' if failures else 'complete', results=outputs, failures=failures,
+                   completed_at=now(), progress=f'{len(outputs)} / {total} · 批处理结束 · 失败 {len(failures)}')
+    except Exception as exc:
+        if read_json(folder/'job.json')['status']!='cancelled':
+            update_job(job_id,status='failed',results=outputs,failures=failures,error=str(exc),completed_at=now())
 
 
 @asynccontextmanager
@@ -372,6 +470,74 @@ def emotion_sweep(req: EmotionSweepRequest):
     requests = [GenerateRequest(**{**req.request.model_dump(), "emotion":mood})
                 for mood in dict.fromkeys(req.emotions)]
     return enqueue(requests, "多语气对照 · " + req.request.text[:20], "emotions")
+
+
+class StudyRequest(BaseModel):
+    reference_ids: list[str] = Field(min_length=1, max_length=10)
+    engines: list[Literal['index2','index25','breeze2']] = Field(default=['index2','index25','breeze2'], min_length=1,max_length=3)
+    emotions: list[Literal['neutral','happy','sad','angry','calm','surprised','afraid','melancholic','disgusted']] = Field(
+        default=['neutral','happy','sad','angry','calm','surprised','afraid','melancholic','disgusted'], min_length=1,max_length=9)
+    text: str = Field(min_length=1,max_length=350)
+    title: str = Field(default='批量音色与语气对照',max_length=120)
+    language: Literal['zh','en','ja','es','ar'] = 'zh'
+    seed: int = Field(default=42,ge=0,le=2147483647)
+    emotion_strength: float = Field(default=.65,ge=0,le=1)
+    wait_for_reference_review: bool = False
+
+
+@app.post('/api/studies')
+def study(req: StudyRequest):
+    requests=[]
+    try:
+        for reference in dict.fromkeys(req.reference_ids):
+            for emotion in dict.fromkeys(req.emotions):
+                requests.append(GenerateRequest(engines=list(dict.fromkeys(req.engines)), text=req.text,
+                                                reference_id=reference, emotion=emotion, language=req.language,
+                                                seed=req.seed, emotion_strength=req.emotion_strength, title=req.title))
+    except ValueError as exc:
+        raise HTTPException(422,str(exc))
+    return enqueue(requests,req.title,'study',metadata={'wait_for_reference_review':req.wait_for_reference_review})
+
+
+class TextStudyItem(BaseModel):
+    code: str = Field(pattern=r'^[A-Z][A-Z0-9_-]{1,15}$')
+    title: str = Field(min_length=1,max_length=80)
+    text: str = Field(min_length=1,max_length=2000)
+    source_reference_id: str | None = None
+
+
+class TextStudyRequest(BaseModel):
+    reference_id: str
+    items: list[TextStudyItem] = Field(min_length=1,max_length=60)
+    engines: list[Literal['index2','index25','breeze2']] = Field(default=['index2'],min_length=1,max_length=3)
+    emotions: list[Literal['neutral','calm']] = Field(default=['neutral','calm'],min_length=1,max_length=2)
+    title: str = Field(default='固定音色 · 多文本与原声对照',max_length=120)
+    language: Literal['zh','en','ja','es','ar'] = 'zh'
+    seed: int = Field(default=42,ge=0,le=2147483647)
+    emotion_strength: float = Field(default=.65,ge=0,le=1)
+
+
+@app.post('/api/text-studies')
+def text_study(req: TextStudyRequest):
+    if len({item.code for item in req.items})!=len(req.items):
+        raise HTTPException(422,'文本编号不能重复')
+    requests=[]
+    try:
+        for item in req.items:
+            if item.source_reference_id:
+                _,source=get_ref(item.source_reference_id)
+                if item.text.strip()!=source['transcript'].strip():
+                    raise HTTPException(422,'原声对照文本必须与该录音保存的逐字稿完全一致')
+            for mood in dict.fromkeys(req.emotions):
+                requests.append(GenerateRequest(engines=list(dict.fromkeys(req.engines)),text=item.text,
+                                                reference_id=req.reference_id,emotion=mood,language=req.language,
+                                                seed=req.seed,emotion_strength=req.emotion_strength,
+                                                title=f'{item.code} · {item.title}'))
+    except ValueError as exc:
+        raise HTTPException(422,str(exc))
+    return enqueue(requests,req.title,'study',metadata={'text_items':[item.model_dump() for item in req.items],
+                                                     'fixed_reference_id':req.reference_id,
+                                                     'source_transcript_note':'已有逐字稿，保留重复与口头语；未人工逐句听校'})
 
 
 @app.post("/api/jobs/{job_id}/cancel")
@@ -482,8 +648,14 @@ def audio_file(job_id: str, run_id: str, variant: Literal["original", "matched",
 
 
 @app.get("/api/reference-audio/{ref_id}")
-def reference_audio(ref_id: str):
-    return FileResponse(item_path("references", ref_id) / "audio.wav", media_type="audio/wav")
+def reference_audio(ref_id: str,variant: Literal['original','matched']='original'):
+    folder=item_path('references',ref_id)
+    path=folder/'audio.wav'
+    if variant=='matched':
+        path=folder/'matched.wav'
+        with LOCK:
+            if not path.is_file():normalize_audio(folder/'audio.wav',path)
+    return FileResponse(path, media_type="audio/wav")
 
 
 @app.post("/api/import")
@@ -538,10 +710,10 @@ def export(job_id: str):
                 z.write(p, p.relative_to(folder))
         stream = io.StringIO()
         writer = csv.writer(stream)
-        writer.writerow(["model", "text", "seconds", "wall_seconds_including_load", "rtf_cold", "naturalness", "clarity", "similarity", "emotion", "notes"])
+        writer.writerow(["model", "text", "seconds", "model_process_seconds", "rtf_cold", "naturalness", "clarity", "similarity", "emotion", "notes", "reference_name", "reference_id", "delivery", "timing_kind", "rtf_warm", "model_load_seconds"])
         for r in job["results"]:
             rating = r.get("rating") or {}
-            writer.writerow([r["engine_name"], r["text"], r["metrics"]["duration"], r["wall_seconds"], r["rtf_cold"], *[rating.get(k, "") for k in ["naturalness", "clarity", "similarity", "emotion", "notes"]]])
+            writer.writerow([r["engine_name"], r["text"], r["metrics"]["duration"], r["wall_seconds"], r["rtf_cold"], *[rating.get(k, "") for k in ["naturalness", "clarity", "similarity", "emotion", "notes"]], r.get('reference_name',''),r.get('reference_id',''),r['emotion'],r.get('timing_kind','cold'),r.get('rtf_warm',''),r['parameters'].get('model_load_seconds','')])
         z.writestr("scores.csv", "\ufeff" + stream.getvalue())
     return FileResponse(target, filename=f"tts-lab-{job_id}.zip")
 

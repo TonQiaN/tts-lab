@@ -158,3 +158,60 @@ def test_external_import_preserves_unknown_parameters_and_group_text(data):
     mismatch = client.post("/api/import", files={"file":("external.wav",buffer.getvalue(),"audio/wav")},
                            data={"engine_name":"另一个引擎", "text":"不同原文", "job_id":job["id"]})
     assert mismatch.status_code == 422
+
+
+def test_study_covers_each_reference_engine_and_emotion(data, monkeypatch):
+    captured={}
+    def capture(requests,title,kind,metadata=None):
+        captured['requests']=requests
+        captured['metadata']=metadata
+        return {'count':sum(len(r.engines) for r in requests),'kind':kind}
+    monkeypatch.setattr(server,'enqueue',capture)
+    client=TestClient(server.app)
+    response=client.post('/api/studies',json={'reference_ids':['ref1','ref2','ref1'],'text':'相同的测试台词。','wait_for_reference_review':True})
+    assert response.status_code==200,response.text
+    assert response.json()=={'count':54,'kind':'study'}
+    assert {r.reference_id for r in captured['requests']}=={'ref1','ref2'}
+    assert len({r.emotion for r in captured['requests']})==9
+    assert {r.seed for r in captured['requests']}=={42}
+    assert captured['metadata']['wait_for_reference_review'] is True
+
+
+def test_study_rejects_incompatible_languages(data,monkeypatch):
+    client=TestClient(server.app)
+    response=client.post('/api/studies',json={'reference_ids':['ref1'],'language':'ja','text':'こんにちは。'})
+    assert response.status_code==422
+
+
+def test_text_study_keeps_clone_reference_separate_from_comparison_source(data,monkeypatch):
+    folder=data/'references/source2';folder.mkdir()
+    server.write_json(folder/'reference.json',{'transcript':'对，对，我说的就是这个环境。'})
+    captured={}
+    def capture(requests,title,kind,metadata=None):
+        captured.update(requests=requests,metadata=metadata)
+        return {'kind':kind,'count':len(requests)}
+    monkeypatch.setattr(server,'enqueue',capture)
+    response=TestClient(server.app).post('/api/text-studies',json={'reference_id':'fixedR001','items':[
+        {'code':'S001','title':'原声逐字对照','text':'对，对，我说的就是这个环境。','source_reference_id':'source2'},
+        {'code':'N001','title':'新文本','text':'你先慢慢说。'}]})
+    assert response.status_code==200,response.text
+    assert response.json()=={'kind':'study','count':4}
+    assert {r.reference_id for r in captured['requests']}=={'fixedR001'}
+    assert {r.emotion for r in captured['requests']}=={'neutral','calm'}
+    assert {tuple(r.engines) for r in captured['requests']}=={('index2',)}
+    assert captured['metadata']['text_items'][0]['source_reference_id']=='source2'
+    assert captured['requests'][0].text=='对，对，我说的就是这个环境。'
+
+
+def test_text_study_rejects_rewritten_source_and_duplicate_codes(data,monkeypatch):
+    folder=data/'references/source2';folder.mkdir()
+    server.write_json(folder/'reference.json',{'transcript':'嗯，对，对。'})
+    client=TestClient(server.app)
+    response=client.post('/api/text-studies',json={'reference_id':'fixedR001','items':[
+        {'code':'S001','title':'原声','text':'对。','source_reference_id':'source2'}]})
+    assert response.status_code==422
+    assert '逐字稿完全一致' in response.text
+    response=client.post('/api/text-studies',json={'reference_id':'fixedR001','items':[
+        {'code':'N001','title':'甲','text':'你好。'},{'code':'N001','title':'乙','text':'再见。'}]})
+    assert response.status_code==422
+    assert '编号不能重复' in response.text

@@ -32,8 +32,12 @@ def distance(a, b):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--job", action="append", help="只检查指定实验，可重复传入")
+    parser.add_argument("--model", choices=['base','turbo'], default='base', help='本地 ASR 模型')
     args = parser.parse_args()
     import mlx_whisper
+    model_name='mlx-community/whisper-large-v3-turbo' if args.model=='turbo' else 'mlx-community/whisper-base-mlx'
+    model_dir=ROOT/'models'/('whisper-large-v3-turbo' if args.model=='turbo' else 'whisper-base-mlx')
+    model_revision='a4aaeec0636e6fef84abdcbe3544cb2bf7e9f6fb' if args.model=='turbo' else '1e3e249fb8d01c655324bd6841b1deadffd6d04c'
     results = []
     for path in sorted((ROOT / "data/runs").glob("*/job.json")):
         job = json.loads(path.read_text())
@@ -43,15 +47,15 @@ def main():
             continue
         for result in job["results"]:
             folder = path.parent / result["id"]
-            transcript = mlx_whisper.transcribe(str(folder / "original.wav"), path_or_hf_repo=str(ROOT / "models/whisper-base-mlx"), language=None if result['language'] == 'unknown' else result['language'], fp16=True, temperature=0, verbose=False)
+            transcript = mlx_whisper.transcribe(str(folder / "original.wav"), path_or_hf_repo=str(model_dir), language=None if result['language'] == 'unknown' else result['language'], fp16=True, temperature=0, condition_on_previous_text=False, verbose=False)
             expected, actual = normalized(result["text"]), normalized(transcript["text"])
             record = {"job_id":job["id"], "run_id":result["id"], "model":result["engine_name"],
                       "emotion":result["emotion"], "requested_text":result["text"], "asr_text":transcript["text"],
                       "audio_sha256":result["metrics"]["sha256"],
                       "diagnostic_cer":round(distance(expected,actual)/max(1,len(expected)),4),
-                      "asr_model":"mlx-community/whisper-base-mlx", "asr_revision":"1e3e249fb8d01c655324bd6841b1deadffd6d04c",
+                      "asr_model":model_name, "asr_revision":model_revision,
                       "normalization":"移除声音事件标签、NFKC、小写、繁体转简体、去除标点及空白",
-                      "note":"Whisper base 自动转写，仅辅助发现漏字复读；含 ASR 本身错误，不作为音质或模型排名。"}
+                      "note":"本机 Whisper 自动转写，仅辅助发现漏字复读；含 ASR 本身错误，不作为音质或模型排名。"}
             check_path = folder / "asr-check.json"
             temporary = check_path.with_suffix(".tmp")
             temporary.write_text(json.dumps(record,ensure_ascii=False,indent=2))

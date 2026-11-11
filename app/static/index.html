@@ -39,8 +39,9 @@
   <section id="compare" class="page">
     <div class="page-heading"><div><div class="eyebrow">LISTEN. COMPARE. DECIDE.</div><h1>把区别，听清楚。</h1><p>按实验组对比，记录自然度、清晰度、音色相似度和情绪表现。</p></div></div>
     <div class="compare-toolbar panel"><label>实验组<select id="comparison-job"></select></label><label class="check"><input id="matched" type="checkbox" checked> 统一响度 · −16 LUFS</label><label class="check"><input id="blind" type="checkbox"> 隐藏模型名称</label><button id="shuffle" class="secondary">打乱顺序</button><button id="play-all" class="secondary">依次播放</button><button id="export" class="text-button">导出实验包 ↓</button><button id="import-open" class="text-button">导入其他整合包音频 ＋</button></div>
+    <div id="comparison-filters" class="compare-toolbar panel hidden" style="margin-top:14px"><label>参考音色<select id="comparison-ref-filter"></select></label><label id="comparison-text-wrap" class="hidden">片段文本<select id="comparison-text-filter"></select></label><button id="next-text" class="secondary hidden">下一段文本 →</button><label>试听语气<select id="comparison-mood-filter"></select></label><button id="next-mood" class="secondary">下一种语气 →</button><span id="comparison-progress" class="muted" aria-live="polite"></span></div>
     <div id="comparison-text" class="comparison-text"></div><div id="comparison-reference"></div><div id="results" class="results-grid"></div>
-    <p class="footnote">本地单人盲听评分不是正式多人 MOS。耗时 / RTF 包含加载；统一响度只用于试听，不覆盖原始输出。</p>
+    <p class="footnote">本地单人盲听评分不是正式多人 MOS。耗时按冷启动或常驻模式标注；统一响度只用于试听，不覆盖原始输出。</p>
   </section>
   <section id="voices" class="page">
     <div class="page-heading"><div><div class="eyebrow">YOUR VOICE LIBRARY</div><h1>每个角色，从一种音色开始。</h1><p>参考音频与准确逐字稿配对保存，后续生成重复使用。</p></div><button id="new-voice" class="primary">＋ 添加音色</button></div><div id="voice-list" class="voice-grid"></div>

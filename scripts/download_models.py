@@ -15,6 +15,7 @@ SPECS = {
     "index25": ("vanch007/mlx-indextts2-2.5-8bit", "3170ceff8032ab6d0c2945e72068a03ea8c68461", "IndexTTS-2.5-mlx-8bit"),
     "breeze2": ("rishikksh20/Breeze-TTS-2-mlx", "92266ef6e15dd4be290be416dd6b0bf9a2bab81b", "Breeze-TTS-2-mlx-int8"),
     "asr": ("mlx-community/whisper-base-mlx", "1e3e249fb8d01c655324bd6841b1deadffd6d04c", "whisper-base-mlx"),
+    "asr-turbo": ("mlx-community/whisper-large-v3-turbo", "a4aaeec0636e6fef84abdcbe3544cb2bf7e9f6fb", "whisper-large-v3-turbo"),
 }
 
 def main():

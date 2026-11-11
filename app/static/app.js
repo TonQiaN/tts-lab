@@ -7,6 +7,8 @@ if (!['index2','index25','breeze2'].includes(selected)) selected = 'index25';
 let page = location.pathname === '/compare' ? 'compare' : 'studio';
 let currentJob = new URLSearchParams(location.search).get('job') || '', order = [], previousKey = '', timer;
 let comparisonNeedsRender = false;
+let compareReference=new URLSearchParams(location.search).get('ref')||'', compareMood=new URLSearchParams(location.search).get('mood')||'', filterJob='';
+let compareText=new URLSearchParams(location.search).get('text')||'';
 const ratingDrafts = new Map();
 const labels = {studio:'配音工作室',compare:'对比试听',voices:'我的音色',script:'剧本与多角色',catalog:'模型与整合包'};
 
@@ -57,7 +59,7 @@ function reqFromForm(){
     instruction:selected==='breeze2'&&!all?$('instruction').value:'',emotion_strength:Number($('strength').value),seed:Number($('seed').value),speed:Number($('speed').value),
     title:(all?'三模型对比 · ':state.engines.find(e=>e.id===selected).name+' · ')+$('text').value.slice(0,20)};
 }
-const statusText={queued:'排队中',running:'生成中',complete:'已完成',failed:'失败',cancelled:'已取消',interrupted:'已中断'};
+const statusText={queued:'排队中',running:'生成中',complete:'已完成',partial:'部分完成',failed:'失败',cancelled:'已取消',interrupted:'已中断'};
 const emotionText={neutral:'自然',happy:'开心',sad:'难过',angry:'生气',calm:'平静',surprised:'惊讶',afraid:'害怕',melancholic:'忧郁',disgusted:'厌恶',unknown:'未提供'};
 function renderJobs(){
   $('jobs').innerHTML=state.jobs.length?state.jobs.slice(0,12).map(j=>`<div class="job"><div><div class="job-title">${esc(j.title)}</div><div class="job-meta">${esc(j.created_at.replace('T',' ').slice(0,19))} · ${esc(statusText[j.status]||j.status)} · ${esc(j.progress||'')} ${j.results.length?'· '+j.results.length+' 条音频':''}</div>${j.error?`<details class="job-error"><summary>查看失败原因</summary>${esc(j.error)}</details>`:''}</div><div class="job-actions">${['running','queued'].includes(j.status)?`<button class="text-button cancel-job" data-id="${j.id}">停止</button>`:''}${j.results.length?`<button class="secondary listen-job" data-id="${j.id}">试听 ↗</button>`:''}${j.timeline?`<a class="text-button" href="/api/jobs/${j.id}/timeline/wav">整段 WAV ↓</a><a class="text-button" href="/api/jobs/${j.id}/timeline/srt">SRT ↓</a>`:''}</div></div>`).join(''):'<div class="empty">这里会留下你的第一组声音实验。</div>';
@@ -81,21 +83,47 @@ function renderCompare(){
   renderComparisonList();
   const job=jobs.find(j=>j.id===currentJob);
   if(!job){$('results').innerHTML='<div class="empty">还没有生成结果。完成一组配音后，就可以在这里并排试听。</div>';$('comparison-text').textContent='';return;}
-  history.replaceState(null,'','/compare?job='+encodeURIComponent(currentJob));
-  if(order.length!==job.results.length||order.some(id=>!job.results.some(r=>r.id===id)))order=job.results.map(r=>r.id);
+  const refs=[...new Set(job.segments.map(s=>s.request.reference_id).filter(Boolean))];
+  const moods=[...new Set(job.segments.map(s=>s.request.emotion))];
+  const textItems=job.metadata?.text_items||[], textMode=textItems.length>0;
+  const filtered=job.kind==='study';
+  $('comparison-filters').classList.toggle('hidden',!filtered);
+  if(filterJob!==job.id){
+    if(filtered){if(!refs.includes(compareReference)&&compareReference!=='all')compareReference=refs[0]||'';if(!moods.includes(compareMood)&&compareMood!=='all')compareMood=textMode?'all':moods[0]||'';}
+    else{compareReference='';compareMood='';}
+    if(textMode&&!textItems.some(item=>item.code===compareText)&&compareText!=='all')compareText=textItems[0].code;
+    if(!textMode)compareText='';
+    filterJob=job.id;
+  }
+  $('comparison-text-wrap').classList.toggle('hidden',!textMode);
+  $('next-text').classList.toggle('hidden',!textMode);
+  $('comparison-text-filter').innerHTML='<option value="all" '+(compareText==='all'?'selected':'')+'>全部片段文本</option>'+textItems.map(item=>`<option value="${esc(item.code)}" ${compareText===item.code?'selected':''}>${esc(item.code+' · '+item.title)}</option>`).join('');
+  const selectedText=textItems.find(item=>item.code===compareText);
+  $('comparison-ref-filter').innerHTML='<option value="all" '+(compareReference==='all'?'selected':'')+'>全部参考音色</option>'+refs.map(id=>`<option value="${id}" ${compareReference===id?'selected':''}>${esc(state.references.find(r=>r.id===id)?.name||id)}</option>`).join('');
+  $('comparison-mood-filter').innerHTML='<option value="all" '+(compareMood==='all'?'selected':'')+'>全部语气</option>'+moods.map(mood=>`<option value="${mood}" ${compareMood===mood?'selected':''}>${esc(emotionText[mood]||mood)}</option>`).join('');
+  let samples=job.results.filter(r=>(!filtered||!compareReference||compareReference==='all'||r.reference_id===compareReference)&&(!filtered||!compareMood||compareMood==='all'||r.emotion===compareMood)&&(!selectedText||r.text===selectedText.text.trim()));
+  if(filtered)samples.sort((a,b)=>refs.indexOf(a.reference_id)-refs.indexOf(b.reference_id)||moods.indexOf(a.emotion)-moods.indexOf(b.emotion)||['index2','index25','breeze2'].indexOf(a.engine)-['index2','index25','breeze2'].indexOf(b.engine));
+  $('comparison-progress').textContent=`已生成 ${job.results.length} / ${job.segments.length} · 当前${textMode?'克隆 ':''} ${samples.length} 条${selectedText?.source_reference_id?' · 原声 1 条':''}${job.failures?.length?' · 失败 '+job.failures.length:''}`;
+  history.replaceState(null,'','/compare?job='+encodeURIComponent(currentJob)+(compareReference?'&ref='+encodeURIComponent(compareReference):'')+(compareMood?'&mood='+encodeURIComponent(compareMood):'')+(compareText?'&text='+encodeURIComponent(compareText):''));
+  if(order.length!==samples.length||order.some(id=>!samples.some(r=>r.id===id)))order=samples.map(r=>r.id);
   const blind=$('blind').checked,matched=$('matched').checked;
-  const texts=[...new Set(job.results.map(r=>r.text))];
-  $('comparison-text').textContent=(texts.length===1?'共同文本：':'剧本台词：')+texts.join(' / ')+(job.results.some(r=>r.engine==='external')?' · 外部音频的参考音色与生成参数未核实':'');
-  const ref=state.references.find(r=>r.id===job.results[0]?.reference_id);
-  $('comparison-reference').innerHTML=ref?`<details class="muted"><summary>参考音色 · ${esc(ref.name)}${ref.source_type==='synthetic'?'（合成音色）':''}</summary><audio style="max-width:400px" controls preload="none" src="/api/reference-audio/${ref.id}"></audio><p>${esc(ref.transcript)}</p></details>`:'';
-  $('results').innerHTML=order.map((id,i)=>{
+  const texts=[...new Set(samples.length?samples.map(r=>r.text):job.segments.map(s=>s.request.text))];
+  $('comparison-text').textContent=(selectedText?selectedText.code+' · '+selectedText.title+'：':texts.length===1?'共同文本：':'剧本台词：')+(textMode&&!selectedText?`${textItems.length} 段文本；选择单段可与原声并排对照。`:selectedText?selectedText.text:texts.join(' / '))+(job.results.some(r=>r.engine==='external')?' · 外部音频的参考音色与生成参数未核实':'');
+  const ref=state.references.find(r=>r.id===((compareReference&&compareReference!=='all')?compareReference:samples[0]?.reference_id));
+  $('comparison-reference').innerHTML=ref?`<details class="muted"><summary>${textMode?'固定克隆参考':'参考音色'} · ${esc(ref.name)}${ref.source_type==='synthetic'?'（合成音色）':''}</summary><audio style="max-width:400px" controls preload="none" src="/api/reference-audio/${ref.id}"></audio><p>${esc(ref.transcript)}</p></details>`:'';
+  const source=selectedText?.source_reference_id?state.references.find(r=>r.id===selectedText.source_reference_id):null;
+  const sourceCard=source?`<article class="result source-result"><span class="tag">${esc(selectedText.code)} · 原录音对照</span><h3>原声录音 · ${esc(source.reference_code||'')}</h3><span class="muted">${esc(source.name)} · ${source.audio.duration.toFixed(2)} 秒</span><div class="waveform" aria-hidden="true">${source.audio.waveform.filter((_,n)=>n%2===0).map(v=>`<i style="height:${Math.max(3,v*100)}%"></i>`).join('')}</div><audio class="result-audio" controls preload="none" src="/api/reference-audio/${source.id}?variant=${matched?'matched':'original'}" aria-label="试听原声"></audio><p class="muted">${esc(job.metadata.source_transcript_note||'原声对应保存的逐字稿。')}</p><p class="muted">此卡为同文对照原声；右侧克隆始终使用固定参考音色。</p><div class="result-links"><a href="/api/reference-audio/${source.id}" download>原声 WAV ↓</a><a href="/api/reference-audio/${source.id}?variant=matched" download>统一响度 WAV ↓</a></div></article>`:'';
+  $('results').innerHTML=sourceCard+(order.length?order.map((id,i)=>{
     const r=job.results.find(r=>r.id===id),rate=ratingDrafts.get(r.id)||r.rating||{},m=r.metrics;
-    return `<article class="result" data-run="${r.id}"><span class="tag">TAKE ${String(i+1).padStart(2,'0')}</span><h3>${blind?'声音 '+String.fromCharCode(65+i):esc(r.engine_name)+' · '+esc(emotionText[r.emotion]||r.emotion)}</h3><span class="muted">${blind?'先完成评分，再揭晓模型':esc(r.parameters.precision)}</span><div class="waveform" aria-hidden="true">${m.waveform.filter((_,n)=>n%2===0).map(v=>`<i style="height:${Math.max(3,v*100)}%"></i>`).join('')}</div><audio class="result-audio" controls preload="none" src="/api/audio/${job.id}/${id}/${matched?'matched':'original'}" aria-label="试听声音 ${i+1}"></audio>
-      ${blind?'':`<div class="metrics"><div class="metric">音频时长<strong>${m.duration.toFixed(1)} s</strong></div><div class="metric">总耗时 · 含加载<strong>${r.wall_seconds==null?'未提供':r.wall_seconds.toFixed(1)+' s'}</strong></div><div class="metric">RTF · 含加载<strong>${r.rtf_cold==null?'未提供':r.rtf_cold.toFixed(2)}</strong></div><div class="metric">原始响度<strong>${r.loudness.input_lufs.toFixed(1)} LUFS</strong></div></div>`}
-      ${r.asr?`<details><summary>辅助转写 · 请结合原文试听</summary><p>${esc(r.asr.asr_text)}</p><small>本机 Whisper base，识别可能有误。</small></details>`:''}
+    const refCode=state.references.find(ref=>ref.id===r.reference_id)?.reference_code||r.reference_name||'';
+    const duplicates=filtered?job.results.filter(other=>other.id!==r.id&&other.engine===r.engine&&other.reference_id===r.reference_id&&other.metrics.sha256===r.metrics.sha256):[];
+    return `<article class="result" data-run="${r.id}"><span class="tag">TAKE ${String(i+1).padStart(2,'0')}${filtered?' · '+esc(refCode)+' · '+esc(emotionText[r.emotion]||r.emotion):''}${textMode?' · '+esc(r.title):''}</span><h3>${blind?'声音 '+String(i+1):esc(r.engine_name)+' · '+esc(emotionText[r.emotion]||r.emotion)}</h3><span class="muted">${blind?'先完成评分，再揭晓模型':esc(r.parameters.precision)}</span><div class="waveform" aria-hidden="true">${m.waveform.filter((_,n)=>n%2===0).map(v=>`<i style="height:${Math.max(3,v*100)}%"></i>`).join('')}</div><audio class="result-audio" controls preload="none" src="/api/audio/${job.id}/${id}/${matched?'matched':'original'}" aria-label="试听声音 ${i+1}"></audio>
+      ${blind?'':`<div class="metrics"><div class="metric">音频时长<strong>${m.duration.toFixed(1)} s</strong></div><div class="metric">${r.timing_kind==='warm'?'生成耗时 · 常驻':'总耗时 · 含加载'}<strong>${r.wall_seconds==null?'未提供':r.wall_seconds.toFixed(1)+' s'}</strong></div><div class="metric">${r.timing_kind==='warm'?'RTF · 常驻':'RTF · 含加载'}<strong>${(r.rtf_warm??r.rtf_cold)==null?'未提供':(r.rtf_warm??r.rtf_cold).toFixed(2)}</strong></div><div class="metric">原始响度<strong>${r.loudness.input_lufs.toFixed(1)} LUFS</strong></div></div>`}
+      ${duplicates.length?`<p class="muted">与同模型「${duplicates.map(other=>esc(emotionText[other.emotion]||other.emotion)).join('、')}」结果的音频完全相同。</p>`:''}
+      ${r.asr?`<details><summary>辅助转写 · 请结合原文试听</summary><p>${esc(r.asr.asr_text)}</p><small>${esc(r.asr.asr_model?.includes('large-v3-turbo')?'本机 Whisper large-v3-turbo':'本机 Whisper base')}，识别可能有误。</small></details>`:''}
       <div class="rating-grid">${ratingSelect('naturalness','自然度',rate.naturalness,true)}${ratingSelect('clarity','清晰度',rate.clarity,true)}${ratingSelect('similarity','音色相似度',rate.similarity)}${ratingSelect('emotion','情绪符合度',rate.emotion)}</div><textarea class="rating-notes" rows="2" placeholder="漏字、停顿、气息感……">${esc(rate.notes||'')}</textarea><button class="secondary save-rating" data-id="${id}">${r.rating?'更新评分':'保存评分'}</button><div class="result-links"><a href="/api/audio/${job.id}/${id}/original" download>WAV ↓</a><a href="/api/audio/${job.id}/${id}/mp3" download>MP3 ↓</a><button class="text-button use-reference" data-id="${id}">存为音色</button></div>${blind?'':`<details><summary>本次参数与来源</summary><pre>${esc(JSON.stringify(r.parameters,null,2))}</pre><p>${esc(r.license)}</p></details>`}</article>`;
-  }).join('');
-  document.querySelectorAll('.result').forEach(card=>{
+  }).join(''):'<div class="empty">当前音色与语气还在生成，结果会自动出现在这里。</div>');
+  document.querySelectorAll('.result[data-run]').forEach(card=>{
     const remember=()=>ratingDrafts.set(card.dataset.run,ratingFromCard(card));
     card.querySelectorAll('[data-rating]').forEach(input=>input.onchange=remember);
     card.querySelector('.rating-notes').oninput=remember;
@@ -150,7 +178,12 @@ $('prompt').onchange=()=>{const p=state.prompts.find(p=>p.id===$('prompt').value
 $('generate').onclick=async()=>{const b=$('generate');b.disabled=true;try{const j=await api('/api/generate',reqFromForm());currentJob=j.id;order=[];toast('已加入本机队列。可以在最近任务查看进度。');await refresh();}catch(e){toast(e.message);}finally{b.disabled=false;}};
 $('generate-emotions').onclick=async()=>{const b=$('generate-emotions');b.disabled=true;try{const j=await api('/api/emotions',{request:reqFromForm()});currentJob=j.id;order=[];toast('多语气对照已加入队列。每条使用相同文本、音色和种子。');await refresh();}catch(e){toast(e.message);}finally{b.disabled=false;}};
 $('voice-form').onsubmit=async(e)=>{e.preventDefault();const b=e.target.querySelector('[type=submit]');b.disabled=true;try{const r=await api('/api/references',new FormData(e.target));$('voice-dialog').close();e.target.reset();await refresh();$('reference').value=r.id;referencePreview();toast('音色已保存。');}catch(e){toast(e.message);}finally{b.disabled=false;}};
-$('comparison-job').onchange=()=>{currentJob=$('comparison-job').value;order=[];renderCompare();};
+$('comparison-job').onchange=()=>{currentJob=$('comparison-job').value;compareReference='';compareMood='';compareText='';order=[];renderCompare();};
+$('comparison-text-filter').onchange=()=>{compareText=$('comparison-text-filter').value;order=[];renderCompare();};
+$('next-text').onclick=()=>{const values=[...$('comparison-text-filter').options].map(o=>o.value).filter(value=>value&&value!=='all');compareText=values[(values.indexOf(compareText)+1)%values.length]||'';order=[];renderCompare();};
+$('comparison-ref-filter').onchange=()=>{compareReference=$('comparison-ref-filter').value;order=[];renderCompare();};
+$('comparison-mood-filter').onchange=()=>{compareMood=$('comparison-mood-filter').value;order=[];renderCompare();};
+$('next-mood').onclick=()=>{const values=[...$('comparison-mood-filter').options].map(o=>o.value).filter(value=>value&&value!=='all');compareMood=values[(values.indexOf(compareMood)+1)%values.length]||'';order=[];renderCompare();};
 for(const id of ['matched','blind'])$(id).onchange=()=>renderCompare();
 $('shuffle').onclick=()=>{for(let i=order.length-1;i>0;i--){const a=new Uint32Array(1);crypto.getRandomValues(a);const j=a[0]%(i+1);[order[i],order[j]]=[order[j],order[i]];}renderCompare();};
 $('play-all').onclick=()=>{const players=[...document.querySelectorAll('.result-audio')];if(!players.length)return;players.forEach((p,i)=>p.onended=()=>{if(players[i+1])players[i+1].play().catch(()=>toast('浏览器已暂停连续播放，请手动播放下一条。'));});players[0].currentTime=0;players[0].play().catch(()=>toast('请点击音频播放器开始试听。'));};
